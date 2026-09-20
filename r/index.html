@@ -1,0 +1,210 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <meta name="theme-color" content="#1C1008">
+  <meta name="robots" content="noindex">
+  <meta name="apple-itunes-app" content="app-id=REPLACE_APP_ID">
+  <title>A coffee recommended on CoffeeTrac</title>
+  <style>
+    :root {
+      --espresso: #1C1008;
+      --caramel: #C8955A;
+      --roast: #D4A896;
+      --cream: #F0E4D2;
+      --muted: #B39B84;
+      --line: #3A2A1C;
+      --serif: "Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua", Georgia, serif;
+      --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    }
+    * { box-sizing: border-box; }
+    html { background: var(--espresso); }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: var(--espresso);
+      color: var(--cream);
+      font-family: var(--sans);
+      line-height: 1.5;
+      -webkit-text-size-adjust: 100%;
+    }
+    main {
+      max-width: 34rem;
+      margin: 0 auto;
+      padding: 3.5rem 1.5rem 4rem;
+    }
+    .from {
+      margin: 0 0 1.25rem;
+      color: var(--roast);
+      font-family: var(--serif);
+      font-style: italic;
+      font-size: 1.1rem;
+    }
+    h1 {
+      margin: 0;
+      font-family: var(--serif);
+      font-weight: 500;
+      font-size: clamp(2.3rem, 9vw, 3.6rem);
+      line-height: 1.05;
+      letter-spacing: -0.01em;
+      overflow-wrap: anywhere;
+    }
+    .roaster {
+      margin: 0.6rem 0 0;
+      font-family: var(--serif);
+      font-size: 1.25rem;
+      color: var(--caramel);
+      overflow-wrap: anywhere;
+    }
+    .stars {
+      margin: 1.25rem 0 0;
+      color: var(--caramel);
+      font-size: 1.3rem;
+      letter-spacing: 0.15em;
+    }
+    dl {
+      margin: 2rem 0 0;
+      border-bottom: 1px solid var(--line);
+    }
+    .row {
+      display: grid;
+      grid-template-columns: 8rem 1fr;
+      gap: 1rem;
+      padding: 0.7rem 0;
+      border-top: 1px solid var(--line);
+    }
+    dt { margin: 0; color: var(--muted); font-size: 0.95rem; }
+    dd { margin: 0; font-family: var(--serif); font-size: 1.1rem; overflow-wrap: anywhere; }
+    blockquote {
+      margin: 2rem 0 0;
+      padding-left: 1.1rem;
+      border-left: 3px solid var(--caramel);
+      font-family: var(--serif);
+      font-size: 1.15rem;
+      line-height: 1.6;
+      overflow-wrap: anywhere;
+    }
+    .cta {
+      display: inline-block;
+      margin-top: 2.5rem;
+      padding: 0.85rem 1.4rem;
+      background: var(--caramel);
+      color: var(--espresso);
+      font-weight: 600;
+      text-decoration: none;
+      border-radius: 6px;
+    }
+    .cta:hover { background: var(--roast); }
+    .cta:focus-visible { outline: 3px solid var(--cream); outline-offset: 3px; }
+    .hint { margin: 0.9rem 0 0; color: var(--muted); font-size: 0.95rem; max-width: 30rem; }
+    .error h1 { font-size: clamp(1.8rem, 7vw, 2.6rem); }
+    .error p { margin: 1rem 0 0; color: var(--muted); font-family: var(--serif); font-size: 1.15rem; }
+    @media (max-width: 26rem) {
+      .row { grid-template-columns: 1fr; gap: 0.1rem; }
+    }
+  </style>
+</head>
+<body>
+  <main id="app">
+    <noscript>
+      <h1>JavaScript is off</h1>
+      <p>Turn it on to see this recommendation, or open the link on a device with CoffeeTrac installed.</p>
+    </noscript>
+  </main>
+
+  <script>
+    (function () {
+      var LIMITS = { by: 80, roaster: 80, name: 80, origin: 60, varietal: 60, process: 60, altitude: 40, note: 280 };
+      var app = document.getElementById('app');
+
+      function el(tag, className, text) {
+        var node = document.createElement(tag);
+        if (className) node.className = className;
+        if (text !== undefined) node.textContent = text; // textContent only: never innerHTML
+        return node;
+      }
+
+      function clean(value, max) {
+        return typeof value === 'string' ? value.trim().slice(0, max) : '';
+      }
+
+      function decode(param) {
+        var b64 = param.replace(/-/g, '+').replace(/_/g, '/');
+        b64 += '='.repeat((4 - (b64.length % 4)) % 4);
+        var bin = atob(b64);
+        var bytes = Uint8Array.from(bin, function (c) { return c.charCodeAt(0); });
+        return JSON.parse(new TextDecoder().decode(bytes));
+      }
+
+      function parse() {
+        var param = new URLSearchParams(location.search).get('d');
+        if (!param || param.length > 4000) return null;
+        var raw;
+        try { raw = decode(param); } catch (e) { return null; }
+        if (!raw || typeof raw !== 'object' || raw.v !== 1) return null;
+
+        var rec = {};
+        Object.keys(LIMITS).forEach(function (key) { rec[key] = clean(raw[key], LIMITS[key]); });
+        if (!rec.name && !rec.roaster) return null;
+
+        var score = Number(raw.score);
+        rec.score = isFinite(score) && score > 0 && score <= 100 ? String(Math.round(score * 10) / 10) : '';
+        var rating = Math.round(Number(raw.rating));
+        rec.rating = rating >= 1 && rating <= 5 ? rating : 0;
+        return rec;
+      }
+
+      function showError() {
+        app.className = 'error';
+        app.replaceChildren(
+          el('h1', '', 'This link is incomplete'),
+          el('p', '', 'Ask the person who sent it to share the coffee again from CoffeeTrac.')
+        );
+      }
+
+      function show(rec) {
+        var by = rec.by || 'A friend';
+        var title = rec.name || rec.roaster;
+        document.title = title + ' \u2013 recommended on CoffeeTrac';
+
+        var nodes = [el('p', 'from', by + ' recommends'), el('h1', '', title)];
+        if (rec.name && rec.roaster) nodes.push(el('p', 'roaster', rec.roaster));
+
+        if (rec.rating) {
+          var stars = el('p', 'stars', '\u2605'.repeat(rec.rating) + '\u2606'.repeat(5 - rec.rating));
+          stars.setAttribute('role', 'img');
+          stars.setAttribute('aria-label', by + ' rated it ' + rec.rating + ' out of 5');
+          nodes.push(stars);
+        }
+
+        var rows = [
+          ['Origin', rec.origin], ['Varietal', rec.varietal], ['Process', rec.process],
+          ['Altitude', rec.altitude], ['Cupping score', rec.score]
+        ].filter(function (r) { return r[1]; });
+        if (rows.length) {
+          var dl = el('dl');
+          rows.forEach(function (r) {
+            var row = el('div', 'row');
+            row.append(el('dt', '', r[0]), el('dd', '', r[1]));
+            dl.append(row);
+          });
+          nodes.push(dl);
+        }
+
+        if (rec.note) nodes.push(el('blockquote', '', rec.note));
+
+        var cta = el('a', 'cta', 'Get CoffeeTrac on the App Store');
+        cta.href = 'https://apps.apple.com/app/idREPLACE_APP_ID';
+        nodes.push(cta, el('p', 'hint', 'Add this coffee to your To Try list, then log your own review once you have brewed it.'));
+
+        app.replaceChildren.apply(app, nodes);
+      }
+
+      var rec = parse();
+      if (rec) show(rec); else showError();
+    })();
+  </script>
+</body>
+</html>
