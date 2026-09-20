@@ -2,7 +2,7 @@
   "applinks": {
     "details": [
       {
-        "appIDs": ["REPLACE_TEAM_ID.REPLACE_BUNDLE_ID"],
+        "appIDs": ["DNX6Q94H74.com.welliton.CafeLog"],
         "components": [
           { "/": "/r/*", "comment": "CoffeeTrac recommendation links" }
         ]
