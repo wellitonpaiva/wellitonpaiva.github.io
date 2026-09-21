@@ -58,14 +58,39 @@
       color: var(--caramel);
       overflow-wrap: anywhere;
     }
+    .section {
+      margin-top: 2.5rem;
+      padding-top: 1.5rem;
+      border-top: 1px solid var(--line);
+    }
+    h2 {
+      margin: 0 0 1rem;
+      font-family: var(--serif);
+      font-weight: 500;
+      font-size: 1.4rem;
+      line-height: 1.2;
+      overflow-wrap: anywhere;
+    }
     .stars {
-      margin: 1.25rem 0 0;
+      margin: 0 0 1.25rem;
       color: var(--caramel);
-      font-size: 1.3rem;
+      font-size: 1.4rem;
       letter-spacing: 0.15em;
     }
+    .bars { display: grid; gap: 0.65rem; margin: 0 0 1.5rem; }
+    .bar {
+      display: grid;
+      grid-template-columns: 6.5rem 1fr 2.2rem;
+      align-items: center;
+      gap: 0.75rem;
+      font-size: 0.95rem;
+    }
+    .bar .label { color: var(--muted); }
+    .bar .track { height: 6px; background: var(--line); border-radius: 3px; overflow: hidden; }
+    .bar .fill { display: block; height: 100%; background: var(--caramel); }
+    .bar .value { text-align: right; font-family: var(--serif); }
     dl {
-      margin: 2rem 0 0;
+      margin: 0;
       border-bottom: 1px solid var(--line);
     }
     .row {
@@ -78,7 +103,7 @@
     dt { margin: 0; color: var(--muted); font-size: 0.95rem; }
     dd { margin: 0; font-family: var(--serif); font-size: 1.1rem; overflow-wrap: anywhere; }
     blockquote {
-      margin: 2rem 0 0;
+      margin: 1.5rem 0 0;
       padding-left: 1.1rem;
       border-left: 3px solid var(--caramel);
       font-family: var(--serif);
@@ -88,7 +113,7 @@
     }
     .cta {
       display: inline-block;
-      margin-top: 2.5rem;
+      margin-top: 2.75rem;
       padding: 0.85rem 1.4rem;
       background: var(--caramel);
       color: var(--espresso);
@@ -103,6 +128,7 @@
     .error p { margin: 1rem 0 0; color: var(--muted); font-family: var(--serif); font-size: 1.15rem; }
     @media (max-width: 26rem) {
       .row { grid-template-columns: 1fr; gap: 0.1rem; }
+      .bar { grid-template-columns: 5.5rem 1fr 2rem; gap: 0.6rem; }
     }
   </style>
 </head>
@@ -116,7 +142,14 @@
 
   <script>
     (function () {
-      var LIMITS = { by: 80, roaster: 80, name: 80, origin: 60, varietal: 60, process: 60, altitude: 40, note: 280 };
+      // Water is stored as a plain number in the app. Change to 'ml' if that is what the app shows.
+      var WATER_UNIT = 'g';
+
+      // Keep these limits in sync with SharedRecommendation.Limit in the app.
+      var LIMITS = {
+        by: 80, roaster: 80, name: 80, origin: 60, varietal: 60, process: 60, altitude: 40, tasting: 120,
+        comment: 1000, method: 40, grind: 40, time: 20, recipeNotes: 200
+      };
       var app = document.getElementById('app');
 
       function el(tag, className, text) {
@@ -130,12 +163,50 @@
         return typeof value === 'string' ? value.trim().slice(0, max) : '';
       }
 
+      // A real JSON number within range, rounded to one decimal, or null.
+      function num(value, min, max, minInclusive) {
+        if (typeof value !== 'number' || !isFinite(value) || value > max) return null;
+        if (minInclusive ? value < min : value <= min) return null;
+        return Math.round(value * 10) / 10;
+      }
+
+      function fmt(n) { return String(Math.round(n * 10) / 10); }
+
       function decode(param) {
         var b64 = param.replace(/-/g, '+').replace(/_/g, '/');
         b64 += '='.repeat((4 - (b64.length % 4)) % 4);
         var bin = atob(b64);
         var bytes = Uint8Array.from(bin, function (c) { return c.charCodeAt(0); });
         return JSON.parse(new TextDecoder().decode(bytes));
+      }
+
+      function parseReview(r) {
+        if (!r || typeof r !== 'object') return null;
+        var rating = Number.isInteger(r.rating) && r.rating >= 1 && r.rating <= 5 ? r.rating : 0;
+        var attrs = [
+          ['Body', num(r.body, 0, 5, true)],
+          ['Sweetness', num(r.sweetness, 0, 5, true)],
+          ['Bitterness', num(r.bitterness, 0, 5, true)],
+          ['Acidity', num(r.acidity, 0, 5, true)]
+        ].filter(function (a) { return a[1] !== null; });
+        var note = clean(r.note, LIMITS.comment);
+        if (!rating && !attrs.length && !note) return null;
+        return { rating: rating, attrs: attrs, note: note };
+      }
+
+      function parseRecipe(r) {
+        if (!r || typeof r !== 'object') return null;
+        var recipe = {
+          method: clean(r.method, LIMITS.method),
+          coffee: num(r.coffee, 0, 200, false),
+          water: num(r.water, 0, 5000, false),
+          temp: num(r.temp, 0, 100, false),
+          grind: clean(r.grind, LIMITS.grind),
+          time: clean(r.time, LIMITS.time),
+          notes: clean(r.notes, LIMITS.recipeNotes)
+        };
+        if (!recipe.method && recipe.coffee === null && recipe.water === null) return null;
+        return recipe;
       }
 
       function parse() {
@@ -145,14 +216,20 @@
         try { raw = decode(param); } catch (e) { return null; }
         if (!raw || typeof raw !== 'object' || raw.v !== 1) return null;
 
-        var rec = {};
-        Object.keys(LIMITS).forEach(function (key) { rec[key] = clean(raw[key], LIMITS[key]); });
+        var rec = {
+          by: clean(raw.by, LIMITS.by),
+          roaster: clean(raw.roaster, LIMITS.roaster),
+          name: clean(raw.name, LIMITS.name),
+          origin: clean(raw.origin, LIMITS.origin),
+          varietal: clean(raw.varietal, LIMITS.varietal),
+          process: clean(raw.process, LIMITS.process),
+          altitude: clean(raw.altitude, LIMITS.altitude),
+          tasting: clean(raw.tasting, LIMITS.tasting),
+          score: num(raw.score, 0, 100, false),
+          review: parseReview(raw.review),
+          recipe: parseRecipe(raw.recipe)
+        };
         if (!rec.name && !rec.roaster) return null;
-
-        var score = Number(raw.score);
-        rec.score = isFinite(score) && score > 0 && score <= 100 ? String(Math.round(score * 10) / 10) : '';
-        var rating = Math.round(Number(raw.rating));
-        rec.rating = rating >= 1 && rating <= 5 ? rating : 0;
         return rec;
       }
 
@@ -164,6 +241,72 @@
         );
       }
 
+      // A definition list from [label, value] pairs. Empty values are skipped.
+      function list(rows) {
+        var shown = rows.filter(function (r) { return r[1]; });
+        if (!shown.length) return null;
+        var dl = el('dl');
+        shown.forEach(function (r) {
+          var row = el('div', 'row');
+          row.append(el('dt', '', r[0]), el('dd', '', String(r[1])));
+          dl.append(row);
+        });
+        return dl;
+      }
+
+      function section(title) {
+        var s = el('section', 'section');
+        s.append(el('h2', '', title));
+        for (var i = 1; i < arguments.length; i++) {
+          if (arguments[i]) s.append(arguments[i]);
+        }
+        return s;
+      }
+
+      function reviewSection(by, review) {
+        var parts = [];
+        if (review.rating) {
+          var stars = el('p', 'stars', '\u2605'.repeat(review.rating) + '\u2606'.repeat(5 - review.rating));
+          stars.setAttribute('role', 'img');
+          stars.setAttribute('aria-label', by + ' rated it ' + review.rating + ' out of 5');
+          parts.push(stars);
+        }
+        if (review.attrs.length) {
+          var bars = el('div', 'bars');
+          review.attrs.forEach(function (a) {
+            var bar = el('div', 'bar');
+            bar.setAttribute('role', 'meter');
+            bar.setAttribute('aria-label', a[0]);
+            bar.setAttribute('aria-valuemin', '0');
+            bar.setAttribute('aria-valuemax', '5');
+            bar.setAttribute('aria-valuenow', String(a[1]));
+            var track = el('span', 'track');
+            var fill = el('span', 'fill');
+            fill.style.width = (a[1] / 5 * 100) + '%';
+            track.append(fill);
+            bar.append(el('span', 'label', a[0]), track, el('span', 'value', fmt(a[1])));
+            bars.append(bar);
+          });
+          parts.push(bars);
+        }
+        if (review.note) parts.push(el('blockquote', '', review.note));
+        return section.apply(null, [by + '\u2019s take'].concat(parts));
+      }
+
+      function recipeSection(recipe) {
+        var ratio = recipe.coffee && recipe.water ? '1:' + Math.round(recipe.water / recipe.coffee) : '';
+        var rows = list([
+          ['Method', recipe.method],
+          ['Coffee', recipe.coffee ? fmt(recipe.coffee) + ' g' : ''],
+          ['Water', recipe.water ? fmt(recipe.water) + ' ' + WATER_UNIT : ''],
+          ['Ratio', ratio],
+          ['Temperature', recipe.temp ? fmt(recipe.temp) + ' \u00B0C' : ''],
+          ['Grind', recipe.grind],
+          ['Time', recipe.time]
+        ]);
+        return section('The recipe', rows, recipe.notes ? el('blockquote', '', recipe.notes) : null);
+      }
+
       function show(rec) {
         var by = rec.by || 'A friend';
         var title = rec.name || rec.roaster;
@@ -172,28 +315,19 @@
         var nodes = [el('p', 'from', by + ' recommends'), el('h1', '', title)];
         if (rec.name && rec.roaster) nodes.push(el('p', 'roaster', rec.roaster));
 
-        if (rec.rating) {
-          var stars = el('p', 'stars', '\u2605'.repeat(rec.rating) + '\u2606'.repeat(5 - rec.rating));
-          stars.setAttribute('role', 'img');
-          stars.setAttribute('aria-label', by + ' rated it ' + rec.rating + ' out of 5');
-          nodes.push(stars);
-        }
+        if (rec.review) nodes.push(reviewSection(by, rec.review));
 
-        var rows = [
-          ['Origin', rec.origin], ['Varietal', rec.varietal], ['Process', rec.process],
-          ['Altitude', rec.altitude], ['Cupping score', rec.score]
-        ].filter(function (r) { return r[1]; });
-        if (rows.length) {
-          var dl = el('dl');
-          rows.forEach(function (r) {
-            var row = el('div', 'row');
-            row.append(el('dt', '', r[0]), el('dd', '', r[1]));
-            dl.append(row);
-          });
-          nodes.push(dl);
-        }
+        var coffee = list([
+          ['Origin', rec.origin],
+          ['Varietal', rec.varietal],
+          ['Process', rec.process],
+          ['Altitude', rec.altitude],
+          ['Cupping score', rec.score ? fmt(rec.score) : ''],
+          ['Tasting notes', rec.tasting]
+        ]);
+        if (coffee) nodes.push(section('The coffee', coffee));
 
-        if (rec.note) nodes.push(el('blockquote', '', rec.note));
+        if (rec.recipe) nodes.push(recipeSection(rec.recipe));
 
         var cta = el('a', 'cta', 'Get CoffeeTrac on the App Store');
         cta.href = 'https://apps.apple.com/app/id6801599936';
